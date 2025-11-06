@@ -1,1 +1,3 @@
 .idea/
+.ai_agent_venv/
+*pycache*
