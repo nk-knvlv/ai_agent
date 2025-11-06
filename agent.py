@@ -1,4 +1,5 @@
 import pollinations
+from json import loads
 from browser import Browser
 
 base_prompt = '''
@@ -79,11 +80,24 @@ class Agent:
         self.model = pollinations.Text(system=base_prompt)
         self.browser_functional = None
 
-    def run(self):
-        self.user_task_request = input('Какую задачу я должен выполнить? :')
+    async def run(self, page, browser_functional):
+        # self.user_task_request = input('Какую задачу я должен выполнить? :')
+        self.user_task_request = "Закажи помидоры на самокате"
+        self.browser_functional = browser_functional
+        llm_answer = loads(await self.model.Async(
+            "вот запрос пользователя:" + self.user_task_request + "согласно этому запросу Верни url сайта на котором должна быть решена задача"))
+        action = llm_answer['action']['name']
+        url = llm_answer['action']['args']['url']
 
-        while self.task_status is not 'success':
+        if llm_answer == 'error':
+            raise Exception('error')
+
+        await self.browser_functional[action](page, url)
+
+        while self.task_status != 'success':
             # получить верстку
+            print(await self.browser_functional['get_page_html'](page))
+            break
             # сформировать промпт (задача, история, текущее состояние)
             # отправить промпт модели и отправить ответ
             # парсит на предмет вызова функции

@@ -8,29 +8,33 @@ class Browser:
 
     def __init__(self, agent):
         self.ai_agent = agent
-        self.functional = {'run': self.run()}
+        self.functional = {
+            'get_page_html': self.get_page_html,
+            'open_url': self.open_url
+        }
+        self.current_page = None
 
     async def run(self):
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=False,  # Показываем браузер
                 channel="chrome",  # Используем установленный Chrome
-                slow_mo=1000
+                slow_mo=100
             )
-            self.ai_agent.run()
-            #
-            # page = await browser.new_page()
-            # await page.goto("самокат")
-            # print(await page.title())
-            # await browser.close()
+            page = await browser.new_page()
+            self.current_page = page
+            await self.ai_agent.run(self.current_page, self.functional)
+            temp = input('что-то')
+            await browser.close()
 
     @staticmethod
     async def get_page_html(page):
         return await page.content()
 
-    # # 1. Открытие URL
-    # async def open_url(page: Page, url: str) -> None:
-    #     await page.goto(url)
+    @staticmethod
+    # 1. Открытие URL
+    async def open_url(page: Page, url: str) -> None:
+        await page.goto(url)
     #
     # # 2. Клик по элементу
     # async def click(page: Page, selector: str) -> None:
