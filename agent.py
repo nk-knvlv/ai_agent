@@ -25,8 +25,7 @@ class Agent:
         }
 
     async def run(self, browser_functional, page):
-        # self.user_task = input('Какую задачу я должен выполнить? :')
-        self.user_task = "Закажи помидоры на самокате"
+        self.user_task = input('Какую задачу я должен выполнить? :')
         self.context['user_task'] = self.user_task
 
         # доступный llm интерфейс управления браузером
@@ -170,7 +169,6 @@ class Agent:
 
         traverse_and_filter(accessibility_tree)
         return interactive_elements
-
 
     async def get_low_prompt(self, page):
         self.context['current_url'] = page.url
