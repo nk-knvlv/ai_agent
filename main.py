@@ -4,9 +4,9 @@ from browser import Browser
 
 
 async def run():
-    agent = Agent()
-    browser = Browser(agent=agent)
-    await browser.run()
+    browser = Browser()
+    agent = Agent(browser)
+    await agent.wake_up()
 
 
 if __name__ == "__main__":

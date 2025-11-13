@@ -4,33 +4,30 @@ from typing import Optional, Coroutine
 
 
 class Browser:
-    functional: dict
+    def __init__(self):
+        self.browser_app = None
+        self.playwright = None
 
-    def __init__(self, agent):
-        self.ai_agent = agent
-        self.functional = {
-            # 'get_page_html': self.get_page_html,
-            'open_url': self.open_url,
-            'click': self.click,
-            'type': self.type,
-            'wait_for_element': self.wait_for_element,
-            'press': self.press,
-            'get_element_text': self.get_element_text,
-            'type_and_press_enter': self.type_and_press_enter,
-            'get_accessibility_tree': self.get_accessibility_tree,
-            'get_page_url': self.get_page_url,
-        }
+    async def launch(self):
+        # Создаем объект без контекстного менеджера
+        self.playwright = async_playwright()
 
-    async def run(self):
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=False,  # Показываем браузер
-                channel="chrome",  # Используем установленный Chrome
-            )
-            page = await browser.new_page()
-            await self.ai_agent.run(self.functional, page)
-            temp = input('что-то')
-            await browser.close()
+        # Вручную запускаем
+        playwright_obj = await self.playwright.start()
+        self.browser_app = await playwright_obj.chromium.launch(
+            headless=False,  # Показываем браузер
+            channel="chrome",  # Используем установленный Chrome
+        )
+        return await self.new_page()
+
+
+    async def stop(self):
+        self.browser_app.close()
+        await self.playwright.stop()
+
+    async def new_page(self):
+        self.browser_app.current_page = await self.browser_app.new_page()
+        return self.browser_app.current_page
 
     @staticmethod
     async def get_accessibility_tree(page):
@@ -168,18 +165,18 @@ class Browser:
             str: Текстовое содержимое элемента
         """
         return await page.text_content(selector)
-
-    @staticmethod
-    async def type_and_press_enter(page: Page, selector: str, text: str) -> None:
-        """Вводит текст в поле и нажимает Enter для подтверждения
-
-        Args:
-            page (Page): Объект страницы Playwright
-            selector (str): CSS-селектор поля ввода
-            text (str): Текст для ввода и поиска
-
-        Returns:
-            None
-        """
-        await page.fill(selector, text)
-        await page.press(selector, 'Enter')
+    #
+    # @staticmethod
+    # async def type_and_press_enter(page: Page, selector: str, text: str) -> None:
+    #     """Вводит текст в поле и нажимает Enter для подтверждения
+    #
+    #     Args:
+    #         page (Page): Объект страницы Playwright
+    #         selector (str): CSS-селектор поля ввода
+    #         text (str): Текст для ввода и поиска
+    #
+    #     Returns:
+    #         None
+    #     """
+    #     await page.fill(selector, text)
+    #     await page.press(selector, 'Enter')
