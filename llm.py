@@ -7,7 +7,7 @@ class LLM:
     def __init__(self, model_name="gemini-2.5-flash"):
         self.model = model_name
         self.client = Client(
-            api_key='AIzaSyCxW6sDVMyu9ho2T3040VQhS_mVUyaDlAQ'
+            api_key='api key'
         )
 
     async def send(self, message):
