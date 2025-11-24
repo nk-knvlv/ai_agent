@@ -1,9 +1,6 @@
-from http.client import HTTPException
-from urllib.error import HTTPError
 from asyncio import get_event_loop
-import pollinations
-from json import loads, dumps
-from browser import Browser
+from llm import LLM
+from json import dumps
 import inspect
 
 
@@ -17,20 +14,19 @@ class Agent:
         Определяем правила игры
         """
         self.browser = browser
-        conditions = self.get_conditions(browser)
-        self.model = pollinations.Text(system=conditions)
-
+        self.model = LLM()
         self.loop = get_event_loop()
 
         self.context = {
             "current_url": '',
             "user_task": '',
             "current_goal": '',
-            "step_history": []
+            "step_history": [],
+            "page":browser.page_context
         }
 
     async def wake_up(self):
-        await self.browser.launch()
+        await self.browser.launch(self.model)
         await self.start_chat()
 
     async def start_chat(self):
@@ -39,16 +35,16 @@ class Agent:
 
         Чат продолжается до получения команды 'off' или критической ошибки.
         """
-        print('Какое задание мне выполнить?\n')
 
         try:
             while True:
                 try:
+                    self.say('Какое задание мне выполнить?')
                     # Асинхронный ввод вместо блокирующего input()
-                    message = await self.async_input()
+                    message = await self.loop.run_in_executor(None, input, "> ")
 
                     if message.lower().strip() == 'off':
-                        print("Завершение работы...")
+                        self.say("Завершение работы...")
                         self.browser.stop()
                         break
 
@@ -57,14 +53,9 @@ class Agent:
 
                     possible_task = await self.try_extract_task(message)
                     if possible_task:
-                        print(f"Как я понял: {possible_task}")
                         await self.entrust(possible_task)
                     else:
-                        print("Пожалуйста, отправьте четкое задание для выполнения")
-
-                except KeyboardInterrupt:
-                    print("\nЗавершение по команде пользователя...")
-                    break
+                        self.say("Пожалуйста, отправьте четкое задание для выполнения")
                 except Exception as e:
                     print(f"Ошибка при обработке сообщения: {e}")
                     continue
@@ -73,16 +64,6 @@ class Agent:
             print(f"Критическая ошибка в чате: {e}")
         finally:
             print("Чат завершен")
-
-
-    async def async_input(self) -> str:
-        """
-        Асинхронная версия input().
-
-        Returns:
-            str: Введенная пользователем строка
-        """
-        return await self.loop.run_in_executor(None, input, "> ")
 
     async def try_extract_task(self, message: str) -> str | None:
         """
@@ -96,25 +77,28 @@ class Agent:
             None: Если задача не найдена или произошла ошибка
         """
         prompted_message = f"""
-            Ты - анализатор задач. Определи, является ли сообщение пользователя задачей для ИИ-ассистента.
-        
-            КРИТЕРИИ ЗАДАЧИ:
-            - Конкретное действие (найти, скачать, проанализировать, сравнить)
-            - Выполнимо через браузер
-            - Имеет четкую цель
-        
-            ФОРМАТ ОТВЕТА ТОЧНО В ОДНОЙ СТРОКЕ:
-            [ЗАДАЧА|НЕТ]| |описание
-        
-            Примеры:
-            ЗАДАЧА| Найти рецепт пасты карбонара
-            НЕТ| Это приветствие, а не задача
-            ЗАДАЧА| Сравнить цены на iPhone в разных магазинах
-        
-            Сообщение: "{message}"
+                    Ты - анализатор задач. Определи, является ли сообщение пользователя задачей для ИИ-ассистента.
+                    
+                    КРИТЕРИИ ЗАДАЧИ ДЛЯ ИИ:
+                    - Конкретное цифровое действие (найти, проанализировать, сравнить, заказать, оформить)
+                    - Может быть выполнено через браузер, приложения или с передачей контроля пользователю
+                    - Имеет четкую цель
+                    
+                    ФОРМАТ ОТВЕТА ТОЧНО В ОДНОЙ СТРОКЕ:
+                    [ЗАДАЧА|НЕТ]| | описание
+                    
+                    Примеры:
+                    ЗАДАЧА| Найти рецепт пасты карбонара
+                    ЗАДАЧА| Пометь спорные письма как спам на mail
+                    НЕТ| Это физическое действие, требующее человека
+                    НЕТ| Это приветствие, а не задача
+                    ЗАДАЧА| Сравнить цены на iPhone в разных магазинах
+                    
+                    Сообщение: "{message}"
             """
 
         try:
+            self.say(f'Пытаюсь выявить задание')
             response = await self.send(prompted_message)
             response = response.strip()
 
@@ -133,78 +117,120 @@ class Agent:
             print(f"Ошибка при извлечении задачи из '{message}': {e}")
             return None
 
+    @staticmethod
+    def say(message):
+        print(f'Agent: ' + message + '\n')
+
     async def entrust(self, task):
         """
         Поручает ИИ выполнить конкретное задание
         """
         self.context['user_task'] = task
 
+        self.say(f'Cоставляю план')
+
         plan = await self.get_plan(task)
-        print('составляю план')
-        print(plan)
-        #
-        # for goal in eval(plan):
-        #     print(f'выполняю {goal}')
-        #     self.context['current_goal'] = goal
-        #     self.step_status = False
-        #     tries = 0
-        #     while not self.step_status:
-        #         try:
-        #             low_prompt = await self.get_low_prompt(page=page)
-        #             symb_count = len(low_prompt)
-        #             low_actions_dict = loads(await self.get_llm_answer(
-        #                 low_prompt
-        #             ))
-        #             self.update_context(low_actions_dict['context'])
-        #             if 'thought' in low_actions_dict:
-        #                 print(low_actions_dict['thought'])
-        #
-        #             if low_actions_dict['actions'] == 'success':
-        #                 self.step_status = True
-        #                 self.history = ''
-        #                 break
-        #             await self.carry_out(actions)
-        #         except HTTPError as e:
-        #             if tries < 4:
-        #                 tries += 1
-        #                 continue
-        #             else:
-        #                 raise e
+
+        self.say(f'План - {plan}')
+        for step in eval(plan):
+            attempt = 0
+            success = False
+
+            while attempt < 4 and not success:
+                try:
+                    self.say(f'Выполняю - {step}')
+                    self.context['current_goal'] = step
+                    attempt += 1
+                    self.context['page'] = self.browser.page_context
+                    step_prompt = await self.get_step_prompt(page=self.browser.page)
+                    response = await self.send(
+                        step_prompt
+                    )
+                    response = eval(response)
+
+                    self.update_context(response['context'])
+                    if 'thought' in response:
+                        self.say(f'Мысли - {response['thought']}')
+
+                    if response['actions'] == 'success':
+                        success = True
+                        break
+                    if response['actions'] == 'wait_for_the_human':
+                        await self.wait_human(favour=response['thought'])
+                        break
+
+                    await self.carry_out(actions=response['actions'])
+
+                except Exception as e:
+                    print(f"Ошибка при выполнении шага {step} сообщения: {e}")
+                    continue
+            if not success:
+                print(f"Не получилось выполнить задание за отведенные попытки")
+                break
 
     async def send(self, message) -> str:
         """
         Обрабатывает сообщение от пользователя
         """
-        print("думаю...")
-        answer = await self.model.Async(message)
-        return answer
+        self.say('Думаю...')
+        response = await self.model.send(message)
+        return response
+
+    async def wait_human(self, favour):
+        self.say(favour)
+
+        while not favour_is_responding:
+            message = await self.loop.run_in_executor(None, input, "> ")
+            prompt = f"""Если в сообщении пользователь подтвердил что выполнил то о чем его попросили,
+             или написал что ты можешь продолжать, то отправь True, если нет отправь False
+             сообщение пользователя:{message}
+            """
+
+            response = await self.model.send(prompt)
+            if response == "True":
+                favour_is_responding = True
 
     async def carry_out(self, actions):
-        for move in actions:
-            print(f'выполняю {move}')
-            move['parameters']['page'] = page
-            self.context['step_history'].append(f"action - {move}")
-            func = self.browser_functional[move['name']]
-            if inspect.iscoroutinefunction(func):
-                returned = await func(**move['parameters'])
-            else:
-                returned = func(**move['parameters'])
-            if returned:
-                self.history += f"action returned value - {returned}"
+        for action in actions:
+            print(f'выполняю {action}')
+
+            method = getattr(self.browser, action['name'], None)
+
+            try:
+                if inspect.iscoroutinefunction(method):
+                    returned = await method(**action['parameters'])
+                else:
+                    returned = method(**action['parameters'])
+
+                if returned:
+                    self.context['step_history'].append(f"action returned value - {returned}")
+                self.context['step_history'].append(f"action - {action}")
+
+            except AttributeError:
+                error_msg = f"Method {action['name']} not found in Browser"
+                print(error_msg)
+                self.context['step_history'].append(f"ERROR: {error_msg}")
+
+            except TypeError as e:
+                error_msg = f"Invalid parameters for {action['name']}: {e}"
+                print(error_msg)
+                self.context['step_history'].append(f"ERROR: {error_msg}")
+
+            except Exception as e:
+                error_msg = f"Unexpected error in {action['name']}: {e}"
+                print(error_msg)
+                self.context['step_history'].append(f"ERROR: {error_msg}")
 
     def update_context(self, context):
         for el, val in context.items():
             self.context[el] = val
 
-    def get_conditions(self, browser):
-        available_actions = self.get_class_func_description(browser)
-        conditions = f'''
+
+    async def get_plan(self, task):
+        plan_making_prompt = f"""
             Ты - автономный AI-агент, который управляет веб-браузером для выполнения задач пользователя.
             
             Ты получишь задачу от пользователя и класс для взаимодействия с браузером
-            
-            Доступные действия:
-            {available_actions}                
             
             Начинаешь ты с about:blank страницы
             Ты должен анализировать HTML, чтобы понять, какие элементы присутствуют на странице,
@@ -214,126 +240,19 @@ class Agent:
             Если действие подразумевает данные или подтверждения которые знает только человек,
             например выбор адреса или внесение данных оплаты,
             тебе нужно передать управление человеку.
-            '''
-        return conditions
-
-    async def get_plan(self, task):
-        plan_making_prompt = f"""
-                Пользователь хочет: {task}.
-    
-                Разбей эту задачу на высокоуровневые односложные, но информативные шаги. Например:
-    
-                Открыть сайт mail.ru
-                
-                Прочитать письма
-                
-                Если спам то пометить как спам
-    
-                Выведи только список python, без дополнительных объяснений, на языке запроса.
+            
+            
+            Пользователь хочет: {task}.
+            
+            Разбей эту задачу на высокоуровневые односложные, но информативные шаги. Например:
+            
+            ["Открыть сайт mail.ru", "Прочитать письма", "Если спам то пометить как спам"]
+            
+            Верни список Python в точности таком же формате, без дополнительного текста.
+            ВАЖНО: Возвращай только чистый Python-код без каких-либо обратных кавычек, маркеров кода или пояснений.
             """
 
         return await self.send(plan_making_prompt)
-
-    @staticmethod
-    def filter_interactive_elements(accessibility_tree):
-        """Фильтрует accessibility tree, оставляя только интерактивные элементы"""
-
-        interactive_roles = {
-            'button', 'link', 'textbox', 'searchbox', 'checkbox',
-            'radio', 'slider', 'combobox', 'listbox', 'menu',
-            'menuitem', 'tab', 'switch', 'option', 'search'
-        }
-
-        interactive_elements = []
-
-        def traverse_and_filter(node, path=""):
-            if not node:
-                return
-
-            # Проверяем, является ли элемент интерактивным
-            is_interactive = (
-                    node.get('role') in interactive_roles or
-                    node.get('focused') is True or
-                    node.get('focusable') is True or
-                    node.get('clickable') is True or
-                    # Элементы с обработчиками событий
-                    any(key in node for key in ['onclick', 'onkeypress', 'onkeydown']) or
-                    # Элементы форм
-                    node.get('role') == 'textbox' and node.get('value') or
-                    # Карточки товаров (часто имеют роль article или region с кликабельностью)
-                    (node.get('role') in ['article', 'region'] and node.get('clickable'))
-            )
-
-            # Дополнительные проверки для специфических элементов
-            has_shopping_indicators = any(indicator in str(node).lower() for indicator in [
-                'товар', 'product', 'карточка', 'card', 'купить', 'buy',
-                'цена', 'price', 'корзина', 'cart', 'заказ', 'order'
-            ])
-
-            if is_interactive or has_shopping_indicators:
-                element_info = {
-                    'role': node.get('role'),
-                    'name': node.get('name', ''),
-                    'description': node.get('description', ''),
-                    'value': node.get('value', ''),
-                    'focused': node.get('focused', False),
-                    'focusable': node.get('focusable', False),
-                    'path': path
-                }
-                interactive_elements.append(element_info)
-
-            # Рекурсивно обходим детей
-            for i, child in enumerate(node.get('children', [])):
-                child_path = f"{path}/{node.get('role', 'root')}[{i}]"
-                traverse_and_filter(child, child_path)
-
-        traverse_and_filter(accessibility_tree)
-        return interactive_elements
-
-    async def get_low_prompt(self, page):
-        self.context['current_url'] = page.url
-        accessibility_tree = await self.browser_functional['get_accessibility_tree'](page)
-        page_state_ino = self.filter_interactive_elements(accessibility_tree)
-        prompt = f"""
-                    Текущее состояние страницы:
-                    {dumps(page_state_ino)}
-                    контекст:    
-                    {dumps(self.context)}            
-                    
-                    Учитывая контекст, проверь выполнена ли задача, если нет то
-                    Сгенерируй последовательность действий для выполнения текущего шага. 
-                    
-                    Ты должен отвечать в формате JSON, который содержит два поля:
-                    - "thought": строка, в которой ты объясняешь, что ты видишь на странице и почему ты выбираешь следующее действие.
-                    - "actions": объект, описывающий действия. Если ты решил выполнить функцию, то укажи имя функции и аргументы. Если задача завершена, то в "actions" укажи success.
-                    - "context": объект, описывающий контекст. Если ты в действии перешел на другой сайт соответствующе поменяй контекст. Указывай только те поля которые поменялись.
-                    Пример ответа:
-                    {{
-                        "thought": "я понимаю что нахожусь не на том сайте где пользователь просил решить задачу, надо перейти на нужный",
-                        "actions":{{
-                                    {{
-                                        "name": "open_url",
-                                        "parameters": {{
-                                                "url": "https://samokat.ru",
-                                        }}
-                                    }},
-                                    {{
-                                        "name": "type",
-                                        "parameters": {{
-                                                "selector": "input[.search]",
-                                                "text": "мед",
-                                        }}
-                                    }}
-                                }},
-                        "context":{{
-                            "current_url": "https://samokat.ru",
-                        }}        
-                    }}
-                    Если ты не уверен в селекторе, используй get_element_text или другие функции,
-                    чтобы получить больше информации о элементе.
-                    Важно: используй только доступные действия.
-                    """
-        return prompt
 
     @staticmethod
     def get_class_func_description(cls: type) -> str:
@@ -349,7 +268,7 @@ class Agent:
         functions_info = []
 
         # Получаем все методы класса
-        for func_name, func in inspect.getmembers(cls, predicate=inspect.isfunction):
+        for func_name, func in inspect.getmembers(cls, predicate=inspect.iscoroutinefunction):
             # Пропускаем приватные и защищенные методы
             if func_name.startswith('_'):
                 continue
@@ -372,18 +291,10 @@ class Agent:
 
                 parameters.append(param_info)
 
-            # Получаем документацию
-            docstring = func.__doc__
-            description = ""
-            if docstring:
-                description = docstring.strip().split('\n')[0].strip()
-
             func_info = {
                 "name": func_name,
-                "description": description,
                 "parameters": parameters,
                 "return_type": str(signature.return_annotation),
-                "full_docstring": docstring.strip() if docstring else ""
             }
 
             functions_info.append(func_info)
@@ -396,3 +307,67 @@ class Agent:
     # парсит на предмет вызова функции
     # выполняет функцию и обновляет историю
     # если модель считает что задача завершена, выходит из цикла
+
+    async def get_step_prompt(self, page):
+        self.context['current_url'] = page.url
+        available_actions = self.get_class_func_description(self.browser)
+        prompt = f"""
+                Ты - автономный AI-агент, который управляет веб-браузером для выполнения задач пользователя.
+
+                Учитывая контекст, проверь выполнена ли задача, если нет то сгенерируй последовательность действий для выполнения текущего шага.
+                Если ты не знаешь нужный селектор для действия сначала найди его с помощью доступных методов
+                
+                КОМАНДА: Возвращай ТОЛЬКО данные в виде Python-словаря. НИКАКИХ обратных кавычек, НИКАКИХ маркеров json, НИКАКИХ комментариев или пояснений.
+                
+                СТРУКТУРА ОТВЕТА:
+                {{
+                    "thought": "объяснение что видишь и почему выбираешь действие",
+                    "actions": [массив действий или строка],
+                    "context": {{'измененные поля контекста'}}
+                }}
+                
+                ПРАВИЛА:
+                - Используй только доступные действия
+                - Для авторизации/оплаты используй "wait_for_the_human"
+                - Указывай в контексте только измененные поля
+                
+        
+               
+                возвращай в таком виде:
+               
+                - "thought": строка, в которой ты объясняешь, что ты видишь на странице и почему ты выбираешь следующее действие.
+                - "actions": объект, описывающий действия. Если ты решил выполнить функцию, то укажи имя функции и аргументы. Если текущая подзадача завершена, то в "actions" вместо массива укажи строку success. 
+                - "context": объект, описывающий контекст. Если ты в действии перешел на другой сайт соответствующе поменяй контекст. Указывай только те поля которые поменялись.
+                
+                Если подзадача это авторизация или оплата, то в "actions" вместо массива укажи строку wait_for_the_human
+                            
+               Пример ответа:
+                "thought": "я понимаю что нахожусь не на том сайте где пользователь просил решить задачу, надо перейти на нужный",
+                   "actions":{{
+                               {{
+                                   "name": "open_url",
+                                   "parameters": {{
+                                           "url": "https://samokat.ru",
+                                   }}
+                               }},
+                               {{
+                                   "name": "type",
+                                   "parameters": {{
+                                           "selector": "input[.search]",
+                                           "text": "мед",
+                                   }}
+                               }}
+                           }},
+                   "context":{{
+                       "current_url": "https://samokat.ru",
+                   }}
+
+               контекст:    
+               {dumps(self.context, ensure_ascii=False)} 
+               
+                Доступные
+                действия:
+                {available_actions}
+
+               """
+        return prompt
