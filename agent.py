@@ -83,6 +83,8 @@ class Agent:
                     - Конкретное цифровое действие (найти, проанализировать, сравнить, заказать, оформить)
                     - Может быть выполнено через браузер, приложения или с передачей контроля пользователю
                     - Имеет четкую цель
+                    - старайся сразу перейти на сайт, используй поиск только если не понимаешь какой конкретно сайт нужен
+                    - поисковые инпуты не всегда именно input теги, могли стилизовать div, p или textarea
                     
                     ФОРМАТ ОТВЕТА ТОЧНО В ОДНОЙ СТРОКЕ:
                     [ЗАДАЧА|НЕТ]| | описание
@@ -119,7 +121,7 @@ class Agent:
 
     @staticmethod
     def say(message):
-        print(f'Agent: ' + message + '\n')
+        print(f'Agent: ' + message)
 
     async def entrust(self, task):
         """
@@ -173,11 +175,13 @@ class Agent:
         Обрабатывает сообщение от пользователя
         """
         self.say('Думаю...')
+        await self.browser.wait(2000)
         response = await self.model.send(message)
         return response
 
     async def wait_human(self, favour):
         self.say(favour)
+        favour_is_responding = False
 
         while not favour_is_responding:
             message = await self.loop.run_in_executor(None, input, "> ")
@@ -192,7 +196,7 @@ class Agent:
 
     async def carry_out(self, actions):
         for action in actions:
-            print(f'выполняю {action}')
+            self.say(f'выполняю {action}')
 
             method = getattr(self.browser, action['name'], None)
 
